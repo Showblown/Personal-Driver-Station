@@ -12,6 +12,8 @@ using XInputium;
 using XInputium.XInput;
 using System.Diagnostics;
 using WebSocketSharp;
+using System.Runtime.InteropServices;
+// I dont think I need all of these but it doesnt matter
 
 
 
@@ -22,69 +24,121 @@ namespace Personal_Driver_Station
 	/// </summary>
 	public partial class MainWindow : Window
 	{
-
+		//defining the gamepad and websockets
+		//if you reading this dev I didnt end up switching I really didnt wanna rewrite the whole thing
+		//TODO - get the battery voltage from the robot
+		//TODO - make a ui (learning xaml 🤮🤮🤮 (thats the vomit emoji))
+		//TODO - get the esp32 to arduino mega serial working (ive been trying for like 2 weeks it might be over)
 		private readonly XGamepad gamepad;
+		private WebSocket ws;
 
 		public MainWindow()
 		{
+			//Im gonna be real I dont actually remember what initializecomponent does but I added it a long time ago and it doesnt work if I take it out
 			InitializeComponent();
 			gamepad = new();
 			XInputDevice device = new(XInputUserIndex.One);
-			Websockets();
 
+			Debug.WriteLine("Starting");
+
+			//
+			Thread gamepadThread = new(CheckIsconnected);
+			gamepadThread.Start();
+
+		}
+
+		private void Controller()
+		{
 			while (true)
 			{
+				Controlling inp = new()
+				{
+					leftStickY = gamepad.LeftJoystick.Y,
+					rightStickY = gamepad.RightJoystick.Y,
+					rightTrigger = gamepad.RightTrigger.Value,
+					leftTrigger = gamepad.LeftTrigger.Value
+				};
+
+				byte[] data = ByteConversion(inp);
+				SendData(data);
+				gamepad.Update();
+			}
+		}
+
+		private void SendData(byte[] data)
+		{
+			//Right now I have to make due with the websocket connecting and disconnecting like 20 times a second because
+			//idk how to have it send a bunch of stuff without closing. it works fine though
+			ws = new WebSocket("ws://192.168.4.1:80");
+			ws.OnMessage += (sender, e) => Debug.WriteLine("WebSocket Message: " + e.Data);
+			ws.OnOpen += (sender, e) => Debug.WriteLine("WebSocket connected.");
+			ws.OnClose += (sender, e) => Debug.WriteLine("WebSocket disconnected.");
+			ws.Connect();
+			ws.Send(data);
+		}
+
+		private void CheckIsconnected()
+		{
+			while (true)
+			{
+
+				Thread.Sleep(100); // essentially just like delay() in arduino
 				XInputDeviceState state = XInputDevice.GetState(XInputUserIndex.One);
 
 				if (state.IsConnected)
 				{
-					//Debug.WriteLine($"The device is connected. Left joystick: {state.LeftJoystick}");
-
-					//Debug.WriteLine(state.LeftJoystick);
-
-					device.SetMotorsSpeed(0.0f, 0.0f);
-					Websockets();
-
-					//gamepad.Update();
-					//Gamepad_InputReceived();
+					gamepad.Update(); 
+					Controller(); 
 				}
 				else
 				{
-					//Debug.WriteLine("The device is not connected.");
+					Debug.WriteLine("The device is not connected.");
 				}
 			}
-		;
 		}
 
-		/** private static void Gamepad_InputReceived()
+		public static byte[] ByteConversion(Controlling inp)
 		{
-			// Access the gamepad axis (left stick and right stick).
-			XGamepad gamepad = new();
-			while (true)
+			//I copy pasted this off of something online but it works
+			int size = Marshal.SizeOf(inp);
+			byte[] arr = new byte[size];
+			IntPtr ptr = Marshal.AllocHGlobal(size);
+
+			//gang wtf is try and finally
+			try
 			{
-				// Get the left and right stick axes (X and Y).
-				double leftStickY = gamepad.LeftJoystick.Y;
-
-				// Print the axis values.
-				Debug.WriteLine($"I love skibidi toilet {leftStickY}");
-
-				gamepad.Update();
+				Marshal.StructureToPtr(inp, ptr, true);
+				Marshal.Copy(ptr, arr, 0, size);
 			}
+			finally
+			{
+				Marshal.FreeHGlobal(ptr);
+			}
+
+			return arr;
 		}
-		**/
 
-		public static void Websockets()
+		public struct Controlling
 		{
+			//basically just a struct with all the things I thought I needed. ill have to figure out how to include buttons later
+			public double leftStickY;
+			public double rightStickY;
+			public double rightTrigger;
+			public double leftTrigger;
+		}
 
+		//apparently commenting out code is a bad practice and Im not gonna use it again
+		//but it has too much sentimental value
+
+		/**public static void Websockets()
+		{
 
 			XGamepad gamepad = new();
 			while (true)
 			{
 				// Get the left and right stick axes (X and Y).
 				double leftStickY = gamepad.LeftJoystick.Y;
-
 				// Print the axis values.
-
 				gamepad.Update();
 
 
@@ -95,14 +149,15 @@ namespace Personal_Driver_Station
 					int x = 4;
 					ws.Connect();
 					ws.Send(leftStickY.ToString());
+					Debug.WriteLine(leftStickY);
 				}
+				Thread.Sleep(100);
 			}
 
 			
 
-		}
+		}**/
 
 
 	}
 }
-
